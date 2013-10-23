@@ -27,11 +27,25 @@ my %prefs = (
 	channels    => "##forkbot",
 );
 
+my %prefdoc = (
+	server		=> "IRC server to connect to",
+	port		=> "Port that IRC server is running on",
+	nick		=> "Nickname to use",
+	ident		=> "ident to use (after the ! in hostmask)",
+	timeout 	=> "Time to wait before disconnecting from the server. PINGs are sent every 50 seconds.",
+	superu  	=> "User who can run commands like eval, join, etc",
+	prefix		=> "Command prefix - like +help or something",
+	threads 	=> "Number of threads to use - more => faster processing of IRC input, but higher RAM/CPU usage",
+	server_pass	=> "user:pass of server - sent initially, as in /PASS user:pass",
+	modules		=> "Modules to load on startup",
+	channels	=> "Channels to join after connecting",
+);
 sub writeConfig {
 	print "!! Failed to open config file: $!\n";
 	print "!! No config file found. Writing defaults...\n";
 	open F, ">", "forkbot.conf" or die "Failed to open config for writing: $!\n";
 	for (keys %prefs) {
+		print F "# $prefdoc{$_}\n";
 		print F "$_=$prefs{$_}\n";
 	}
 	print "Done. Edit forkbot.conf!\n";
@@ -41,6 +55,7 @@ sub writeConfig {
 
 open CONFIG, "<", "forkbot.conf" or &writeConfig;
 while (<CONFIG>) {
+	next if /^#/;
 	chomp;
 	my ($k,$v) = split/=/,$_,2;
 	$prefs{$k} = $v;
@@ -79,7 +94,8 @@ for (@modules) {
 		print "Successfully loaded $_.\n";
 	}
 }
-our $last_pong_time; # TODO
+
+our $last_pong_time; 
 sub ping {
 	# TODO make this configurable (for slow connections)
 	# check for how long it's been since the last response from the server.
@@ -94,6 +110,7 @@ sub ping {
 	print "[DEBUG] PING\n";
 	print $conn "PING :forkboto\r\n" if defined $conn;
 }
+
 print "logging in as $prefs{nick} (ident $prefs{ident})\n";
 print $conn "PASS $prefs{server_pass}\r\n" if $prefs{server_pass} ne "";
 print $conn "NICK :$prefs{nick}\r\n";
@@ -117,7 +134,9 @@ $SIG{"ALRM"} = \&ping;
 alarm(50, 50); # ping every 50 seconds
 print "Startup finished.\n";
 print ">> Receiving MOTD...\n";
+
 print $conn "JOIN $_\r\n" for @channels;
+
 while (<$conn>) {
 	chomp;
 	#print $_, "\n";
@@ -140,6 +159,7 @@ sub sender {
 	}
 	
 }
+
 sub stdinHelper {
 	# send raw IRC commands to the server.
 	# TODO make this so people can control the bot from the cli
@@ -248,9 +268,8 @@ sub handleLine {
 	}
 	$sender =~ s/^://;
 	$msg =~ s/^:// if defined $msg;
-	# stuff happens
-	# blah blah blah
 	my @toQueue = qw();
+
 	if ($what eq "PRIVMSG") {
 		my ($nick,$ident,$host) = (split/[!@]/, $sender);
 		print "$nick said in ". ($dest eq $prefs{nick} ? "PM" : $dest) . ": $msg\n";
@@ -272,12 +291,6 @@ sub handleLine {
 	}
 
 	$last_pong_time = time;
-=begin
-	{
-		lock($res_q);
-		$res_q->enqueue(@toQueue);
-	}
-=cut
 }
 sub loadModule {
 	my $mpath = shift;
@@ -404,6 +417,23 @@ sub onCmd {
 			);
 			&reply($dest, $nick, "p$v{$1}ng");
 		}
+		when (/^pref/) {
+			$args[0] = lc ($args[0] or "");
+			if ($args[0] eq "get") {
+				if (exists $prefs{$args[1]}) {
+					&reply($dest, $nick, "$args[1] is $prefs{$args[1]}");
+				}
+				else {
+					&reply($dest, $nick, "$args[1] is unset. Set prefs: " . join(', ', keys %prefs));
+				}
+			}
+			elsif ($args[0] eq "set" and $args[1]) {
+				$prefs{$args[1]} = $args[2] or "";
+				&reply($dest, $nick, "$args[1] set to '" . ($args[2] or "") . "'.");
+			}
+			else {
+				&notice($dest, $nick, "usage: pref <get|set> <pref> [value]");
+			}
 		when (/^eval/ and &isSU("$nick!$ident\@$host")) {
 			print "!! $nick is evalutaing $msg in $dest... !!\n";
 			my $r = eval "$msg";
@@ -432,7 +462,7 @@ sub onCmd {
 
 END {
 	print "Quitting...\n";
-	$todo_q->enqueue( (undef) x $prefs{threads} );
+	$todo_q->enqueue( (undef) x $prefs{threads} ) if defined $todo_q;
 	sleep 2;
 	$_->join() for @pool;
 }

@@ -9,7 +9,7 @@ it can load and unload plugins.
 plugins
 =======
 
-They can be loaded by modifying the `@modules` array at the beginning of the code.
+They can be loaded by modifying the plugins option in forkbot.conf.
 
 developing plugins
 =======
