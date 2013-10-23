@@ -13,7 +13,7 @@ use Thread::Queue;
 our $VERSION = "0.1";
 print "== forkbot v$VERSION starting up ==\n";
 print "loading prefs...\n";
-my %prefs = (
+my %prefs :shared = (
 	server		=> 'irc.freenode.net',
 	port		=> '6667',
 	nick		=> 'forkboto',
@@ -62,8 +62,8 @@ while (<CONFIG>) {
 }
 close CONFIG;
 
-my @modules = split/, */,$prefs{modules};
-my @channels = split/, */,$prefs{channels};
+my @modules :shared = split/, */,$prefs{modules};
+my @channels :shared = split/, */,$prefs{channels};
 eval "'asdf' =~ /$prefs{superu}/";
 if ($@) {
 	print STDERR "!! FATAL ERROR IN PREFERENCES !!\n";
@@ -95,7 +95,7 @@ for (@modules) {
 	}
 }
 
-our $last_pong_time; 
+our $last_pong_time :shared; 
 sub ping {
 	# TODO make this configurable (for slow connections)
 	# check for how long it's been since the last response from the server.
@@ -148,7 +148,7 @@ while (<$conn>) {
 	
 
 }
-
+sleep 4; # wait for a bit.
 sub sender {
 	# send stuff that's been buffered.
 	while (1) {
@@ -347,10 +347,10 @@ sub onMsg {
 			&notice($nick, "$cmd is an invalid command name.\n");
 		}
 	}
-	elsif ($msg =~ /^\Q$prefs{nick}\E[:,;]?/) {
-		$msg =~ s/^\Q$prefs{nick}\E[:,;]?//;
+	elsif ($msg =~ /^\Q$prefs{nick}\E[:,;]? */) {
+		$msg =~ s/^\Q$prefs{nick}\E[:,;]? *//;
 		$msg =~ s/^\s+//;
-		$msg =~ /^(\w+?) /;
+		$msg =~ s/^(\w+?) //;
 		my $cmd = lc $1;
 		if ($cmd =~	/ (?[ ( \p{Word} & \p{XID_Start} ) + [_] ]) \p{XID_Continue}* /x) {
 			$msg =~ s/^\s+//;
@@ -405,6 +405,8 @@ sub onCmd {
 					"I *think* this is the right end of the gun", "are you *sure* arsenic is OK to eat?");
 				$msg = $quitmessages[int(rand($#quitmessages))];
 				&sendRaw("QUIT :$msg");
+				&sendRaw("PING :$_") for 1..$prefs{threads};
+				sleep 4;
 			}
 		}
 		when (/^p([aeiou])ng/) {
@@ -428,12 +430,13 @@ sub onCmd {
 				}
 			}
 			elsif ($args[0] eq "set" and $args[1]) {
-				$prefs{$args[1]} = $args[2] or "";
+				$prefs{$args[1]} = ($args[2] or "");
 				&reply($dest, $nick, "$args[1] set to '" . ($args[2] or "") . "'.");
 			}
 			else {
-				&notice($dest, $nick, "usage: pref <get|set> <pref> [value]");
+				&notice($dest, "usage: pref <get|set> <pref> [value]");
 			}
+		}
 		when (/^eval/ and &isSU("$nick!$ident\@$host")) {
 			print "!! $nick is evalutaing $msg in $dest... !!\n";
 			my $r = eval "$msg";
